@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2進数・桁の重み学習ツール</title>
+    <style>
+        /* --- CSS: アプリの見た目を装飾する --- */
+        :root {
+            --primary: #4a90e2;   /* メインの青色 */
+            --secondary: #f39c12; /* 強調用のオレンジ色 */
+            --bg: #f8f9fa;        /* 背景の薄いグレー */
+        }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: var(--bg);
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 600px;
+        }
+        /* 入力エリアのレイアウト（横並び） */
+        .input-section {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 2rem;
+        }
+        .input-group { flex: 1; }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1.2rem;
+            box-sizing: border-box;
+            font-family: monospace; /* 数字の幅を一定にする */
+        }
+        /* 桁の重みを表示するコンテナ（右から左へ並べる） */
+        .weight-container {
+            display: flex;
+            flex-direction: row-reverse; /* 2の0乗(右端)から順に並べるため */
+            justify-content: center;
+            gap: 8px;
+            margin-top: 20px;
+            overflow-x: auto; /* 桁が増えたら横スクロール可能に */
+            padding-bottom: 10px;
+        }
+        /* 各桁（ビット）の縦の並び */
+        .bit-column {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 50px;
+        }
+        /* 2, 4, 8... という重みの数字 */
+        .weight-label {
+            font-size: 0.8rem;
+            color: #777;
+            margin-bottom: 5px;
+        }
+        /* 0 または 1 が入るボックス */
+        .bit-box {
+            width: 40px;
+            height: 40px;
+            border: 2px solid #ddd;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            border-radius: 4px;
+            background: #eee;
+            transition: all 0.2s;
+        }
+        /* ビットが「1」の時のスタイル */
+        .bit-box.active {
+            background-color: var(--secondary);
+            color: white;
+            border-color: #d35400;
+        }
+        /* 計算プロセスを表示するエリア */
+        .calculation {
+            margin-top: 2rem;
+            padding: 15px;
+            background: #fff8e1;
+            border-left: 5px solid var(--secondary);
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>桁の重み計算機</h1>
+
+    <!-- 入力フォーム部分 -->
+    <div class="input-section">
+        <div class="input-group">
+            <label>10進数 (Decimal)</label>
+            <input type="number" id="decInput" placeholder="例: 13">
+        </div>
+        <div class="input-group">
+            <label>2進数 (Binary)</label>
+            <input type="text" id="binInput" placeholder="01101">
+        </div>
+    </div>
+
+    <hr>
+    <h3 style="text-align: center;">桁ごとの分解図</h3>
+    <!-- ここにJavaScriptで「桁のボックス」が追加される -->
+    <div class="weight-container" id="weightContainer"></div>
+
+    <!-- ここに計算式が表示される -->
+    <div class="calculation" id="calcProcess"></div>
+</div>
+
+<script>
+    // --- JavaScript: 変換と表示のロジック ---
+
+    // HTMLの要素を取得して変数に入れる
+    const decInput = document.getElementById('decInput');
+    const binInput = document.getElementById('binInput');
+    const weightContainer = document.getElementById('weightContainer');
+    const calcProcess = document.getElementById('calcProcess');
+
+    // 起動時に空の状態を表示
+    updateDisplay("0");
+
+    // 10進数が入力された時の処理
+    decInput.addEventListener('input', (e) => {
+        let val = parseInt(e.target.value, 10); // 入力文字列を整数に変換
+        if (isNaN(val)) { // 空欄などの場合はリセット
+            updateDisplay("");
+            binInput.value = "";
+            return;
+        }
+        let bin = val.toString(2); // 10進数を2進数の文字列に変換
+        binInput.value = bin;      // 2進数入力欄に反映
+        updateDisplay(bin);        // 下の図解を更新
+    });
+
+    // 2進数が入力された時の処理
+    binInput.addEventListener('input', (e) => {
+        // 0と1以外の文字をリアルタイムで削除（バリデーション）
+        let val = e.target.value.replace(/[^01]/g, '');
+        e.target.value = val;
+        
+        if (val === "") {
+            updateDisplay("");
+            decInput.value = "";
+            return;
+        }
+        // 2進数文字列を10進数の数値に変換して入力欄に反映
+        decInput.value = parseInt(val, 2);
+        updateDisplay(val); // 下の図解を更新
+    });
+
+    /**
+     * 画面下の「桁の重み図解」と「計算式」を更新するメイン関数
+     * @param {string} binStr - 表示したい2進数の文字列（例: "1101"）
+     */
+    function updateDisplay(binStr) {
+        // 現在表示されているボックスを一旦すべて消去
+        weightContainer.innerHTML = '';
+        
+        if (!binStr) {
+            calcProcess.innerHTML = "数値を入力してください";
+            return;
+        }
+
+        // 文字列を1文字ずつバラバラにして、右端（1の位）から処理するために反転させる
+        // 例: "1101" -> ["1", "0", "1", "1"]
+        const bits = binStr.split('').reverse();
+        
+        let sumParts = []; // 足し算のパーツ（重みのリスト）を格納する配列
+        let total = 0;     // 合計値
+
+        // 最低でも8桁分、あるいは入力された桁数分だけループを回す
+        const displayLength = Math.max(8, bits.length);
+
+        for (let i = 0; i < displayLength; i++) {
+            const weight = Math.pow(2, i); // 2のi乗（桁の重み）を計算
+            const bitValue = bits[i] || "0"; // その桁の値（無い場合は0とする）
+            
+            // --- 1. 桁のボックス（UI）を生成 ---
+            const col = document.createElement('div');
+            col.className = 'bit-column';
+            
+            // 上に乗せる重みラベル (1, 2, 4, 8...)
+            const wLabel = document.createElement('div');
+            wLabel.className = 'weight-label';
+            wLabel.innerText = weight;
+            
+            // 0 か 1 が入る箱
+            const bBox = document.createElement('div');
+            // 1のときだけ 'active' クラスをつけて色を変える
+            bBox.className = `bit-box ${bitValue === "1" ? "active" : ""}`;
+            bBox.innerText = bitValue;
+            
+            col.appendChild(wLabel);
+            col.appendChild(bBox);
+            weightContainer.appendChild(col);
+
+            // --- 2. 計算用のデータを蓄積 ---
+            if (bitValue === "1") {
+                sumParts.push(weight); // 1の桁の重みを配列に追加
+                total += weight;       // 合計に加算
+            }
+        }
+
+        // --- 3. 計算式を画面に表示 ---
+        if (sumParts.length > 0) {
+            // 重みの大きい順に並べて足し算の形にする（例: "8 + 4 + 1"）
+            calcProcess.innerHTML = `計算式: ${sumParts.reverse().join(' + ')} = <strong>${total}</strong>`;
+        } else {
+            calcProcess.innerHTML = `計算式: 0 = <strong>0</strong>`;
+        }
+    }
+</script>
+
+</body>
+</html>
